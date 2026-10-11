@@ -1,0 +1,28 @@
+# quince shim. zsh was started with ZDOTDIR pointing at this directory so that the
+# integration loads without the user editing their own startup files. Each shim runs the
+# user's real file, then points ZDOTDIR back here so zsh finds the next shim.
+
+_quince_shim=$ZDOTDIR
+
+_quince_user_zdotdir() {
+  if (( ${+QUINCE_USER_ZDOTDIR} )); then
+    ZDOTDIR=$QUINCE_USER_ZDOTDIR
+  else
+    unset ZDOTDIR
+  fi
+}
+
+# Runs the user's own startup file $1 as if this shim were not here.
+_quince_source_user() {
+  _quince_user_zdotdir
+  [[ -f ${ZDOTDIR:-$HOME}/$1 ]] && builtin source "${ZDOTDIR:-$HOME}/$1"
+  # The file may itself have moved ZDOTDIR; that is where the user's other files are.
+  if (( ${+ZDOTDIR} )); then
+    export QUINCE_USER_ZDOTDIR=$ZDOTDIR
+  else
+    unset QUINCE_USER_ZDOTDIR
+  fi
+  ZDOTDIR=$_quince_shim
+}
+
+_quince_source_user .zshenv

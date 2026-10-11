@@ -1,0 +1,20 @@
+[package]
+name = "quince"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Fig-style autocomplete for the terminal: a popup of subcommands, options and arguments as you type"
+repository = "https://github.com/quanta-studio/Quince"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["autocomplete", "completion", "terminal", "shell", "zsh"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+libc = "0.2.190"
+nix = { version = "0.31.3", features = ["term", "poll", "ioctl", "signal", "process", "fs"] }
+rquickjs = "0.14.0"
+serde_json = "1.0.152"
+signal-hook = "0.4.5"
+unicode-width = "0.2.2"
+vt100 = "0.16.2"

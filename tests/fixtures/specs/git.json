@@ -1,0 +1,99 @@
+{
+  "name": "git",
+  "description": "The stupid content tracker",
+  "options": [
+    {
+      "name": "--version",
+      "description": "Print the version"
+    },
+    {
+      "name": "-C",
+      "description": "Run as if started in this directory",
+      "isPersistent": true,
+      "args": {
+        "name": "path",
+        "template": "folders"
+      }
+    }
+  ],
+  "subcommands": [
+    {
+      "name": "add",
+      "description": "Add file contents to the index",
+      "args": {
+        "name": "pathspec",
+        "template": "filepaths",
+        "isVariadic": true,
+        "isOptional": true
+      },
+      "options": [
+        {
+          "name": [
+            "-A",
+            "--all"
+          ],
+          "description": "Add all changes"
+        }
+      ]
+    },
+    {
+      "name": "checkout",
+      "description": "Switch branches or restore files",
+      "args": {
+        "name": "branch",
+        "suggestions": [
+          {
+            "name": "main",
+            "description": "Branch"
+          },
+          {
+            "name": "develop",
+            "description": "Branch"
+          },
+          {
+            "name": "release",
+            "description": "Branch"
+          }
+        ]
+      },
+      "options": [
+        {
+          "name": "-b",
+          "description": "Create and switch to a new branch",
+          "args": {
+            "name": "new branch"
+          }
+        }
+      ]
+    },
+    {
+      "name": "cherry-pick",
+      "description": "Apply the changes of existing commits"
+    },
+    {
+      "name": "commit",
+      "description": "Record changes to the repository",
+      "options": [
+        {
+          "name": [
+            "-m",
+            "--message"
+          ],
+          "description": "Commit message",
+          "insertValue": "-m '{cursor}'",
+          "args": {
+            "name": "message"
+          }
+        },
+        {
+          "name": "--amend",
+          "description": "Amend the previous commit"
+        }
+      ]
+    },
+    {
+      "name": "status",
+      "description": "Show the working tree status"
+    }
+  ]
+}

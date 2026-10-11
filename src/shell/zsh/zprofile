@@ -1,0 +1,2 @@
+# quince shim; see .zshenv in this directory.
+_quince_source_user .zprofile

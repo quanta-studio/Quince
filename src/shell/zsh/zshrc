@@ -1,0 +1,12 @@
+# quince shim; see .zshenv in this directory. This is the last shim: from here on
+# ZDOTDIR is the user's again, so zsh reads their .zlogin and .zlogout directly.
+_quince_user_zdotdir
+
+# /etc/zshrc may already have derived the history file from the shim directory.
+[[ ${HISTFILE-} == $_quince_shim/* ]] && HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history
+
+[[ -f ${ZDOTDIR:-$HOME}/.zshrc ]] && builtin source "${ZDOTDIR:-$HOME}/.zshrc"
+builtin source "$_quince_shim/integration.zsh"
+
+unset _quince_shim QUINCE_USER_ZDOTDIR
+unfunction _quince_user_zdotdir _quince_source_user
