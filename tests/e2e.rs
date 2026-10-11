@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use std::time::{Duration, Instant};
@@ -716,6 +717,39 @@ fn file_suggestions_follow_the_working_directory() {
     terminal.send("\t");
     terminal.wait_for("the escaped file name", |t| {
         t.cursor_row_text() == r"$ git add notes\ one.txt"
+    });
+}
+
+#[test]
+fn a_script_is_completed_by_its_path_and_runs() {
+    let zsh = require_zsh!();
+    let mut terminal = Terminal::start("script", &zsh, 24, 80);
+    fs::create_dir_all(terminal.home.join("project/tools")).unwrap();
+    fs::write(terminal.home.join("project/notes.txt"), "").unwrap();
+    let script = terminal.home.join("project/tools/hello.sh");
+    fs::write(&script, "#!/bin/sh\necho ran-$((40 + 2))\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+    terminal.send("cd project\r");
+    terminal.wait_for("the prompt after cd", |t| {
+        t.contains("$ cd project") && t.cursor_row_text() == "$"
+    });
+    // Where a command goes, a path offers what can be run: not the notes.
+    terminal.send("./");
+    terminal.wait_for("the way to the script", |t| {
+        t.cursor_row_text() == "$ ./" && t.popup() == ["tools/"]
+    });
+    terminal.send("\t");
+    terminal.wait_for("the script", |t| {
+        t.cursor_row_text() == "$ ./tools/" && t.popup() == ["hello.sh"]
+    });
+    terminal.send("\t");
+    terminal.wait_for("the script's path", |t| {
+        t.cursor_row_text() == "$ ./tools/hello.sh" && t.popup().is_empty()
+    });
+    terminal.send("\r");
+    terminal.wait_for("the script to run", |t| {
+        t.contains("ran-42") && t.cursor_row_text() == "$"
     });
 }
 

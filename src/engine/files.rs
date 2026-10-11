@@ -1,5 +1,7 @@
 //! The `filepaths` and `folders` templates: suggestions read from the file system.
 
+use std::fs::DirEntry;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::spec::Template;
@@ -19,6 +21,11 @@ pub(super) struct Listing {
 /// Lists the files `query`, a partly typed path, could go on to name. Only the last component
 /// is being completed.
 pub(super) fn list(query: &str, template: Template, cwd: &Path) -> Listing {
+    scan(query, cwd, |_| template == Template::Filepaths)
+}
+
+/// Lists the directories `query` could go on to name, and the files that `keep` lets through.
+fn scan(query: &str, cwd: &Path, keep: impl Fn(&DirEntry) -> bool) -> Listing {
     let (typed_dir, partial) = match query.rfind('/') {
         Some(slash) => query.split_at(slash + 1),
         None => ("", query),
@@ -37,7 +44,7 @@ pub(super) fn list(query: &str, template: Template, cwd: &Path) -> Listing {
             }
             let kind = entry.file_type().ok()?;
             let is_dir = kind.is_dir() || (kind.is_symlink() && entry.path().is_dir());
-            (is_dir || template == Template::Filepaths).then_some((name, is_dir))
+            (is_dir || keep(&entry)).then_some((name, is_dir))
         })
         .collect();
     entries.sort_by_cached_key(|(name, _)| name.to_lowercase());
@@ -48,10 +55,24 @@ pub(super) fn list(query: &str, template: Template, cwd: &Path) -> Listing {
 }
 
 pub(super) fn suggest(out: &mut Collector, template: Template, cwd: &Path) {
-    let listing = list(&out.query, template, cwd);
+    offer(out, list(&out.query, template, cwd));
+}
+
+/// Suggests what a path typed where a command goes could run, as in `./configure`: programs,
+/// and the directories that lead to them. This is what zsh completes there.
+pub(super) fn suggest_programs(out: &mut Collector, cwd: &Path) {
+    offer(out, scan(&out.query, cwd, is_program));
+}
+
+fn offer(out: &mut Collector, listing: Listing) {
     for (name, is_dir) in &listing.entries {
         out.file(&listing.typed_dir, name, *is_dir);
     }
+}
+
+/// Whether anyone may execute the file, or the file a link leads to.
+fn is_program(entry: &DirEntry) -> bool {
+    std::fs::metadata(entry.path()).is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0)
 }
 
 fn resolve(cwd: &Path, typed_dir: &str) -> Option<PathBuf> {

@@ -323,7 +323,7 @@ fn command(store: &mut SpecStore, words: &[String], out: &mut Collector, cwd: &P
     // Generators are given the words of the innermost command, as after `sudo`.
     out.words = words[skip..].to_vec();
     let Some((name, rest)) = words[skip..].split_first() else {
-        command_names(store, out);
+        command_names(store, out, cwd);
         return;
     };
     let name = name.rsplit('/').next().unwrap_or(name);
@@ -341,9 +341,13 @@ fn command(store: &mut SpecStore, words: &[String], out: &mut Collector, cwd: &P
     walker.suggest(store, out, cwd);
 }
 
-fn command_names(store: &mut SpecStore, out: &mut Collector) {
-    // An empty prompt gets no popup, and a path is a file rather than a command name.
-    if out.query.is_empty() || out.query.contains('/') {
+fn command_names(store: &mut SpecStore, out: &mut Collector, cwd: &Path) {
+    // An empty prompt gets no popup.
+    if out.query.is_empty() {
+        return;
+    }
+    if is_path(&out.query) {
+        files::suggest_programs(out, cwd);
         return;
     }
     for name in store.names().iter() {
@@ -353,6 +357,11 @@ fn command_names(store: &mut SpecStore, out: &mut Collector) {
             ..Offer::default()
         });
     }
+}
+
+/// Whether a word typed where a command goes names it by where it is, not by what it is called.
+fn is_path(word: &str) -> bool {
+    word.contains('/')
 }
 
 fn is_assignment(word: &str) -> bool {
@@ -587,7 +596,7 @@ impl Walker {
 
     fn suggest_arg(&self, store: &mut SpecStore, out: &mut Collector, arg: &Arg, cwd: &Path) {
         if arg.is_command {
-            command_names(store, out);
+            command_names(store, out, cwd);
         }
         let outer = std::mem::replace(&mut out.fuzzy, arg.fuzzy);
         for suggestion in &arg.suggestions {
@@ -608,7 +617,9 @@ impl Walker {
             true => Some(Template::Filepaths),
             false => templates.first().copied(),
         };
-        if let Some(template) = template {
+        // A path to a command has had its programs listed above; all files would repeat them.
+        let listed = arg.is_command && is_path(&out.query);
+        if let Some(template) = template.filter(|_| !listed) {
             files::suggest(out, template, cwd);
         }
         for generator in &arg.generators {
@@ -916,6 +927,7 @@ mod tests {
                 ],
             }),
             json!({ "name": "sudo", "options": [{ "name": "-u", "args": { "name": "user" } }], "args": { "name": "command", "isCommand": true } }),
+            json!({ "name": "arch", "args": { "name": "program", "template": "filepaths", "isCommand": true } }),
             json!({ "name": "go", "parserDirectives": { "flagsArePosixNoncompliant": true },
                     "subcommands": [{ "name": "build", "options": [{ "name": "-v" }, { "name": "-race" }] }] }),
             json!({ "name": "aws", "subcommands": [{ "name": "s3", "loadSpec": "aws/s3" }] }),
@@ -934,7 +946,7 @@ mod tests {
             }))
             .unwrap(),
         );
-        for (name, spec) in ["git", "sudo", "go", "aws", "aws/s3", "kubectl"]
+        for (name, spec) in ["git", "sudo", "arch", "go", "aws", "aws/s3", "kubectl"]
             .into_iter()
             .zip(&specs)
         {
@@ -1130,7 +1142,7 @@ mod tests {
             seq: 0,
             buffer: buffer.into(),
             cursor: buffer.len(),
-            cwd: "/".into(),
+            cwd: dir.clone(),
         };
         let names = |store: &mut SpecStore, buffer: &str| -> Vec<String> {
             complete(store, &request(buffer))
@@ -1141,6 +1153,7 @@ mod tests {
         };
         assert_eq!(names(&mut store, "g"), ["git ", "go "]);
         assert_eq!(names(&mut store, ""), Vec::<String>::new());
+        // A path is not a command name, and `git.json` here is not a program either.
         assert_eq!(names(&mut store, "./g"), Vec::<String>::new());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1251,6 +1264,57 @@ mod tests {
         assert_eq!(items("git -C s"), [pair("src/", "src/")]);
         // A redirection target is a file whatever the command.
         assert_eq!(items("frobnicate > Ca"), [pair("Cargo.toml", "Cargo.toml ")]);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_path_in_place_of_a_command_lists_what_can_be_run() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = fixture_dir("programs");
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        for (file, mode) in [
+            ("build.sh", 0o755),
+            ("notes.md", 0o644),
+            ("scripts/deploy", 0o700),
+            ("scripts/data.csv", 0o644),
+        ] {
+            std::fs::write(dir.join(file), "").unwrap();
+            std::fs::set_permissions(dir.join(file), std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        std::os::unix::fs::symlink("scripts/deploy", dir.join("ship")).unwrap();
+        std::os::unix::fs::symlink("notes.md", dir.join("readme")).unwrap();
+        let items = |buffer: &str| -> Vec<(String, String)> {
+            complete_in(buffer, &dir)
+                .items
+                .into_iter()
+                .map(|item| (item.label, item.insert))
+                .collect()
+        };
+        let pair = |label: &str, insert: &str| (label.to_owned(), insert.to_owned());
+
+        // Programs and the directories that lead to them, a link counting as what it points at.
+        assert_eq!(
+            items("./"),
+            [
+                pair("build.sh", "./build.sh "),
+                pair("scripts/", "./scripts/"),
+                pair("ship", "./ship ")
+            ]
+        );
+        assert_eq!(items("./b"), [pair("build.sh", "./build.sh ")]);
+        assert_eq!(items("scripts/"), [pair("deploy", "scripts/deploy ")]);
+        assert_eq!(items("./n"), []);
+        // The same wherever a command goes.
+        assert_eq!(items("sudo ./b"), [pair("build.sh", "./build.sh ")]);
+        assert_eq!(items("ls | ./scripts/d"), [pair("deploy", "./scripts/deploy ")]);
+        // A command that may also be any file is listed once, and as a command.
+        assert_eq!(items("arch ./b"), [pair("build.sh", "./build.sh ")]);
+        assert_eq!(items("arch ./n"), []);
+        assert_eq!(items("arch n"), [pair("notes.md", "notes.md ")]);
+        // As an argument, a path is still any file.
+        assert_eq!(items("git add ./n"), [pair("notes.md", "./notes.md ")]);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
